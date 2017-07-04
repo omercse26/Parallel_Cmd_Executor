@@ -40,7 +40,7 @@ class CmdRunner(threading.Thread):
                 self.errmsgfile = os.path.join(self.errmsgdir, stripcommand + ".err")
                 self.errcodefile = os.path.join(self.errcodedir, stripcommand + ".ret")
 
-                t = self.getCommand(cwd, waitcmdprompt)
+                t = self.getTargetCommand(cwd, waitcmdprompt)
                 super(CmdRunner, self).__init__(target=t)
 
             else:
@@ -56,28 +56,14 @@ class CmdRunner(threading.Thread):
                     self.exceptionqueue.put(str(e))
 
         def wait(self):
-
             self.join()
-
             if hasattr(self.command, '__call__') == False:
                 errmsg, errcode = self.getErrMsgAndErrCode()
                 if len(errmsg) > 0 or errcode != 0:
                     raise CommandProcException((self.command, errmsg, errcode))
 
-        def getCommand(self, curr_working_dir, waitcmdprompt):
-            def runCommand():
-                prompt = '/k' if waitcmdprompt else '/c'
-                title = self.command.replace('"', '')
-
-                if self.daemonprocess == False:
-                    runcmd = 'start "' + title + '" /wait cmd ' + prompt + ' "' + self.command + ' 2>' + self.errmsgfile + ' & call echo %^errorLevel% > ' + self.errcodefile + '"'
-                else:
-                    runcmd = 'start "' + title + '" /wait cmd ' + prompt + ' "' + self.command + '"'
-
-                h = subprocess.Popen(runcmd, shell=True, cwd=curr_working_dir)
-                self.processhandle.append(h)
-
-            return runCommand
+        def getTargetCommand(self, curr_working_dir, waitcmdprompt):
+            raise NotImplementedError("Implement target method")
 
         def getErrMsgAndErrCode(self):
 
@@ -137,54 +123,3 @@ class CommandProcException(Exception):
 
     def __str__(self):
         return self.errmsg
-
-def runCommandsInSequence(cmdlist, logdir=None, cwd=None, waitcmdprompt=False):
-    for cmd in cmdlist:
-        p = CmdRunner(command=cmd, cwd=cwd, daemonprocess=False, waitcmdprompt=waitcmdprompt, logdir=logdir)
-        p.start()
-        p.wait()
-
-
-def runCommandsInParallel(cmdlist, logdir=None, cwd=None, daemon=False, waitcmdprompt=False):
-    processlist = []
-    errormsgs = ""
-    for cmd in cmdlist:
-        p = CmdRunner(command=cmd, cwd=cwd, daemonprocess=daemon, waitcmdprompt=waitcmdprompt, logdir=logdir)
-        p.start()
-        processlist.append(p)
-
-    if daemon == False:
-        for process in processlist:
-            try:
-                process.wait()
-            except Exception as e:
-                errormsgs += str(e)
-
-    if len(errormsgs) > 0:
-        raise CommandProcException(errormsgs)
-
-
-def runMethodsInParallel(*methods):
-    threads = []
-    exception_queue = Queue.Queue()
-
-    for method in methods:
-        p = CmdRunner(command=method, exceptionqueue=exception_queue)
-        p.start()
-        threads.append(p)
-
-    for thread in threads:
-        thread.wait()
-
-    errormsg = ''
-
-    while not exception_queue.empty():
-        queuederrmsg = exception_queue.get()
-        errormsg += queuederrmsg
-
-    if len(errormsg) > 0:
-        raise CommandProcException(errormsg)
-
-def getCmdObj (cmd, errmsgfilter=None, nonerrmsgfilter=None, nonerrcodefilter=None):
-    cmd = '('+cmd+')'
-    return (cmd,(errmsgfilter, nonerrmsgfilter, nonerrcodefilter))
